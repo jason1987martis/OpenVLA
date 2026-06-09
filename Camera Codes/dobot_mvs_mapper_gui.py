@@ -10,6 +10,8 @@ import numpy as np
 
 from ctypes import cast, POINTER, c_ubyte
 
+from torch import layout
+
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
@@ -324,22 +326,30 @@ class DobotController:
 
     def move_to(self, x, y, z, r):
         self._check()
-
         safe_x, safe_y, safe_z, safe_r, was_clamped = clamp_pose(x, y, z, r)
-
         self.device.move_to(
             x=float(safe_x),
             y=float(safe_y),
             z=float(safe_z),
             r=float(safe_r)
         )
-
         return safe_x, safe_y, safe_z, safe_r, was_clamped
+    
+    def suction_on(self):
+        self._check()
+        self.device.suck(True)
+        print("[DOBOT] Suction ON")
+
+
+    def suction_off(self):
+        self._check()
+        self.device.suck(False)
+        print("[DOBOT] Suction OFF")
+
 
     def close(self):
         if self.device is not None:
             self.device.close()
-
         self.connected = False
 
     def _check(self):
@@ -756,6 +766,26 @@ class MainWindow(QMainWindow):
                 padding: 4px;
             }
         """)
+        
+    def suction_on(self):
+        if not self.check_dobot_ready():
+            return
+        try:
+            self.dobot.suction_on()
+            self.log("[DOBOT] Suction ON")
+        except Exception as e:
+            self.log(f"[DOBOT ERROR] Suction ON failed: {e}")
+
+
+    def suction_off(self):
+        if not self.check_dobot_ready():
+            return
+        try:
+            self.dobot.suction_off()
+            self.log("[DOBOT] Suction OFF")
+        except Exception as e:
+            self.log(f"[DOBOT ERROR] Suction OFF failed: {e}")    
+        
 
     def create_connection_group(self):
         box = QGroupBox("Connection")
@@ -767,6 +797,12 @@ class MainWindow(QMainWindow):
         self.btn_disconnect_dobot = QPushButton("Disconnect Dobot")
         self.btn_home = QPushButton("Home Dobot")
         self.btn_emergency = QPushButton("EMERGENCY STOP / DISCONNECT")
+        
+        self.btn_suction_on = QPushButton("Suction ON")
+        self.btn_suction_off = QPushButton("Suction OFF")
+        self.btn_suction_on.clicked.connect(self.suction_on)
+        self.btn_suction_off.clicked.connect(self.suction_off)
+        
 
         self.btn_start_camera.clicked.connect(self.start_camera)
         self.btn_stop_camera.clicked.connect(self.stop_camera)
@@ -774,6 +810,13 @@ class MainWindow(QMainWindow):
         self.btn_disconnect_dobot.clicked.connect(self.disconnect_dobot)
         self.btn_home.clicked.connect(self.home_dobot)
         self.btn_emergency.clicked.connect(self.emergency_disconnect)
+        
+        self.btn_pick_locked = QPushButton("Pick Locked Cube")
+        self.btn_pick_locked.clicked.connect(self.pick_locked_target)
+        
+        self.btn_drop = QPushButton("Drop / Suction OFF")
+        self.btn_drop.clicked.connect(self.drop_here)
+        
 
         self.btn_emergency.setStyleSheet("background-color: #b00020; color: white; font-weight: bold;")
 
@@ -783,6 +826,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.btn_disconnect_dobot, 1, 1)
         layout.addWidget(self.btn_home, 2, 0, 1, 2)
         layout.addWidget(self.btn_emergency, 3, 0, 1, 2)
+        layout.addWidget(self.btn_suction_on, 4, 0)
+        layout.addWidget(self.btn_suction_off, 4, 1)
+        layout.addWidget(self.btn_pick_locked, 8, 0, 1, 2)
+        layout.addWidget(self.btn_drop, 9, 0, 1, 2)
 
         return box
 
@@ -1519,17 +1566,85 @@ class MainWindow(QMainWindow):
     # TARGET MOVEMENT
     # --------------------------------------------------------------------------
 
-    def move_to_locked_target(self):
+    # def move_to_locked_target(self):
+    #     if self.locked_target_pixel is None:
+    #         QMessageBox.warning(self, "No Locked Target", "Lock the cube pixel first.")
+    #         return
+
+    #     if self.H is None:
+    #         QMessageBox.warning(
+    #             self,
+    #             "Homography Not Ready",
+    #             "First calibrate:\nLock Pixel -> Jog to Cube -> Add Point.\nRepeat 4+ times, then Compute Homography."
+    #         )
+    #         return
+
+    #     if self.locked_target_robot is None:
+    #         u = self.locked_target_pixel[0]
+    #         v = self.locked_target_pixel[1]
+
+    #         robot_xy = pixel_to_robot(self.H, u, v)
+
+    #         if robot_xy is None:
+    #             QMessageBox.warning(self, "Mapping Failed", "Could not map locked pixel to Dobot XY.")
+    #             return
+
+    #         self.locked_target_robot = [float(robot_xy[0]), float(robot_xy[1])]
+
+    #     x = self.locked_target_robot[0]
+    #     y = self.locked_target_robot[1]
+
+    #     confirm = QMessageBox.question(
+    #         self,
+    #         "Move to Locked Target",
+    #         f"Move Dobot to locked cube?\n\n"
+    #         f"X={x:.2f}, Y={y:.2f}\n"
+    #         f"Safe Z={SAFE_Z:.2f}\n"
+    #         f"Pick Z={PICK_Z:.2f}\n\n"
+    #         f"The arm will move.",
+    #         QMessageBox.Yes | QMessageBox.No
+    #     )
+
+    #     if confirm != QMessageBox.Yes:
+    #         return
+
+    #     sequence = [
+    #         (x, y, SAFE_Z, self.jog_r),
+    #         (x, y, PICK_Z, self.jog_r),
+    #         (x, y, SAFE_Z, self.jog_r),
+    #     ]
+
+    #     self.move_sequence_async(sequence, label="Move to locked target")
+
+    def drop_here(self):
+        if not self.check_dobot_ready():
+            return
+
+        confirm = QMessageBox.question(
+            self,
+            "Drop Object",
+            "Turn suction OFF here?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+
+        if confirm != QMessageBox.Yes:
+            return
+
+        try:
+            self.dobot.suction_off()
+            self.log("[DROP] Suction OFF. Object released.")
+        except Exception as e:
+            self.log(f"[DROP ERROR] {e}")
+
+
+
+    def pick_locked_target(self):
         if self.locked_target_pixel is None:
             QMessageBox.warning(self, "No Locked Target", "Lock the cube pixel first.")
             return
 
         if self.H is None:
-            QMessageBox.warning(
-                self,
-                "Homography Not Ready",
-                "First calibrate:\nLock Pixel -> Jog to Cube -> Add Point.\nRepeat 4+ times, then Compute Homography."
-            )
+            QMessageBox.warning(self, "Homography Not Ready", "Compute homography first.")
             return
 
         if self.locked_target_robot is None:
@@ -1549,25 +1664,47 @@ class MainWindow(QMainWindow):
 
         confirm = QMessageBox.question(
             self,
-            "Move to Locked Target",
-            f"Move Dobot to locked cube?\n\n"
-            f"X={x:.2f}, Y={y:.2f}\n"
-            f"Safe Z={SAFE_Z:.2f}\n"
-            f"Pick Z={PICK_Z:.2f}\n\n"
-            f"The arm will move.",
+            "Pick Locked Target",
+            f"Pick cube at:\n\nX={x:.2f}, Y={y:.2f}\nSafe Z={SAFE_Z:.2f}\nPick Z={PICK_Z:.2f}",
             QMessageBox.Yes | QMessageBox.No
         )
 
         if confirm != QMessageBox.Yes:
             return
 
-        sequence = [
-            (x, y, SAFE_Z, self.jog_r),
-            (x, y, PICK_Z, self.jog_r),
-            (x, y, SAFE_Z, self.jog_r),
-        ]
+        def worker():
+            try:
+                self.move_busy = True
 
-        self.move_sequence_async(sequence, label="Move to locked target")
+                self.log_signal.emit("[PICK] Moving above cube...")
+                self.dobot.move_to(x, y, SAFE_Z, self.jog_r)
+                time.sleep(0.3)
+
+                self.log_signal.emit("[PICK] Moving down...")
+                self.dobot.move_to(x, y, PICK_Z, self.jog_r)
+                time.sleep(0.3)
+
+                self.log_signal.emit("[PICK] Suction ON...")
+                self.dobot.suction_on()
+                time.sleep(0.8)
+
+                self.log_signal.emit("[PICK] Lifting cube...")
+                self.dobot.move_to(x, y, SAFE_Z, self.jog_r)
+                time.sleep(0.3)
+
+                self.jog_x = x
+                self.jog_y = y
+                self.jog_z = SAFE_Z
+
+                self.set_spin_values_from_jog()
+
+                self.log_signal.emit("[PICK] Pick completed.")
+
+            except Exception as e:
+                self.log_signal.emit(f"[PICK ERROR] {e}")
+            finally:
+                self.move_busy = False
+        threading.Thread(target=worker, daemon=True).start()
 
     def move_to_live_target(self):
         if self.last_detection is None:
@@ -1656,6 +1793,10 @@ class MainWindow(QMainWindow):
             self.jog("z", +1)
         elif key == Qt.Key_Z:
             self.jog("z", -1)
+        elif key == Qt.Key_V:
+            self.suction_on()
+        elif key == Qt.Key_F:
+            self.suction_off()    
         elif key == Qt.Key_Q:
             self.close()
         else:
