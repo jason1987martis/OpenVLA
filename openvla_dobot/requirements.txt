@@ -1,9 +1,0 @@
-torch
-transformers
-accelerate
-peft
-pillow
-opencv-python
-numpy
-pyserial
-pydobot

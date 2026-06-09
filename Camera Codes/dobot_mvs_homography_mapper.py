@@ -54,8 +54,11 @@ CALIBRATION_ROBOT_POINTS = [
 
 
 # ==============================================================================
-# LOAD MVS SDK
+# LOAD MVS SDK FROM SDK FOLDER
 # ==============================================================================
+
+PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+SDK_DIR = os.path.join(PROJECT_DIR, "SDK")
 
 if os.path.exists(RUNTIME_DIR):
     print(f"[MVS] Linking DLL directory: {RUNTIME_DIR}")
@@ -72,42 +75,84 @@ else:
     sys.exit()
 
 
-possible_import_dirs = [
-    os.getcwd(),
-    os.path.dirname(os.path.abspath(__file__)),
-
-    r"C:\Program Files (x86)\MVS\Development\Samples\Python\MvImport",
-    r"C:\Program Files\MVS\Development\Samples\Python\MvImport",
-
-    r"C:\Program Files (x86)\Common Files\MVS\Development\Samples\Python\MvImport",
-    r"C:\Program Files\Common Files\MVS\Development\Samples\Python\MvImport",
-
-    r"C:\Program Files (x86)\Hikrobot\MVS\Development\Samples\Python\MvImport",
-    r"C:\Program Files\Hikrobot\MVS\Development\Samples\Python\MvImport",
-]
-
-found_import_dir = None
-
-for path in possible_import_dirs:
-    if os.path.exists(os.path.join(path, "MvCameraControl_class.py")):
-        found_import_dir = path
-        break
-
-if found_import_dir is not None:
-    sys.path.append(found_import_dir)
-    print(f"[MVS] Found Python SDK import path: {found_import_dir}")
+if os.path.exists(os.path.join(SDK_DIR, "MvCameraControl_class.py")):
+    sys.path.insert(0, SDK_DIR)
+    print(f"[MVS] Using local SDK folder: {SDK_DIR}")
 else:
-    print("[CRITICAL ERROR] Could not find MvCameraControl_class.py.")
-    print("Copy MvCameraControl_class.py and related MvImport files into this folder:")
-    print(os.path.dirname(os.path.abspath(__file__)))
+    print("[CRITICAL ERROR] Could not find MvCameraControl_class.py in local SDK folder.")
+    print("Expected file:")
+    print(os.path.join(SDK_DIR, "MvCameraControl_class.py"))
+    print("\nPlease copy the Hikrobot/MVS Python SDK MvImport files into:")
+    print(SDK_DIR)
     sys.exit()
+
 
 try:
     from MvCameraControl_class import *
-    print("[MVS] Successfully linked MVS SDK headers.")
+    print("[MVS] Successfully linked MVS SDK headers from local SDK folder.")
 except ImportError as e:
-    print(f"[CRITICAL ERROR] Could not import MvCameraControl_class: {e}")
+    print(f"[CRITICAL ERROR] Could not import MvCameraControl_class from SDK folder: {e}")
+    print("\nMake sure these files are inside the SDK folder:")
+    print("  - MvCameraControl_class.py")
+    print("  - CameraParams_header.py")
+    print("  - MvErrorDefine_const.py")
+    print("  - PixelType_header.py")
+    print("  - PixelType_const.py")
     sys.exit()
+
+
+
+#Old Codes (Uncomment only if not workin')
+# if os.path.exists(RUNTIME_DIR):
+#     print(f"[MVS] Linking DLL directory: {RUNTIME_DIR}")
+#     os.add_dll_directory(RUNTIME_DIR)
+
+#     try:
+#         ctypes.WinDLL(os.path.join(RUNTIME_DIR, "MvCameraControl.dll"), use_last_error=True)
+#         print("[MVS] Industrial camera drivers loaded successfully.")
+#     except Exception as e:
+#         print(f"[CRITICAL ERROR] Failed loading MVS runtime: {e}")
+#         sys.exit()
+# else:
+#     print(f"[CRITICAL ERROR] Could not locate MVS runtime folder: {RUNTIME_DIR}")
+#     sys.exit()
+
+
+# possible_import_dirs = [
+#     os.getcwd(),
+#     os.path.dirname(os.path.abspath(__file__)),
+
+#     r"C:\Program Files (x86)\MVS\Development\Samples\Python\MvImport",
+#     r"C:\Program Files\MVS\Development\Samples\Python\MvImport",
+
+#     r"C:\Program Files (x86)\Common Files\MVS\Development\Samples\Python\MvImport",
+#     r"C:\Program Files\Common Files\MVS\Development\Samples\Python\MvImport",
+
+#     r"C:\Program Files (x86)\Hikrobot\MVS\Development\Samples\Python\MvImport",
+#     r"C:\Program Files\Hikrobot\MVS\Development\Samples\Python\MvImport",
+# ]
+
+# found_import_dir = None
+
+# for path in possible_import_dirs:
+#     if os.path.exists(os.path.join(path, "MvCameraControl_class.py")):
+#         found_import_dir = path
+#         break
+
+# if found_import_dir is not None:
+#     sys.path.append(found_import_dir)
+#     print(f"[MVS] Found Python SDK import path: {found_import_dir}")
+# else:
+#     print("[CRITICAL ERROR] Could not find MvCameraControl_class.py.")
+#     print("Copy MvCameraControl_class.py and related MvImport files into this folder:")
+#     print(os.path.dirname(os.path.abspath(__file__)))
+#     sys.exit()
+# try:
+#     from MvCameraControl_class import *
+#     print("[MVS] Successfully linked MVS SDK headers.")
+# except ImportError as e:
+#     print(f"[CRITICAL ERROR] Could not import MvCameraControl_class: {e}")
+#     sys.exit()
 
 
 # ==============================================================================
